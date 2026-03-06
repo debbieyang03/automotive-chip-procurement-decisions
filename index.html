@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>車用晶片採購決策展示（研究用）</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="topbar__left">
+      <h1>車用晶片採購決策展示（研究用）</h1>
+      <p class="subtitle">多目標權衡：成本・交期・碳排 ＋ 缺料風險熱點辨識（Pareto 方案列表）</p>
+    </div>
+    <div class="badge">Internal Demo</div>
+    <div class="badge" id="dbStatus" style="background:#999;cursor:pointer;font-size:12px;">數據庫：未連接</div>
+  </header>
+
+  <main class="layout">
+    <!-- LEFT: Inputs -->
+    <section class="panel">
+      <h2>輸入（情境與參數）</h2>
+
+      <div class="card">
+        <div class="card__title">基本假設</div>
+        <div class="grid2">
+          <label class="field">
+            <span>產業情境</span>
+            <input type="text" id="industry" value="車用電子（Tier-1 / 系統廠）" />
+          </label>
+
+          <label class="field">
+            <span>製程節點</span>
+            <select id="node">
+              <option value="28nm" selected>28nm（成熟製程）</option>
+              <option value="40nm">40nm（對照）</option>
+              <option value="55nm">55nm（對照）</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>年需求量（顆）</span>
+            <input type="number" id="demand" value="1000000" min="0" step="1000" />
+          </label>
+
+          <label class="field">
+            <span>允許急單</span>
+            <select id="expedite">
+              <option value="yes" selected>是</option>
+              <option value="no">否</option>
+            </select>
+          </label>
+        </div>
+
+        <p class="hint">
+          ※ 本頁輸入為<strong>情境假設</strong>，用於研究模型模擬展示；非真實企業資料。
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card__title">數據庫配置（Supabase）</div>
+        <p class="hint" style="margin-top:0;">
+          配置您的 Supabase 憑證以啟用數據自動保存功能。
+        </p>
+
+        <div class="grid2">
+          <label class="field">
+            <span>Supabase URL</span>
+            <input type="text" id="supabaseUrl" placeholder="https://your-project.supabase.co" />
+          </label>
+
+          <label class="field">
+            <span>Anon Key</span>
+            <input type="password" id="supabaseKey" placeholder="your-anon-key" />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="connectDbBtn" class="btn" style="background:#6aa8ff;">連接數據庫</button>
+          <button id="showDbStatusBtn" class="btn" style="background:#46e6a6;">查看連接狀態</button>
+        </div>
+
+        <p class="hint" style="margin-top:10px;font-size:12px;">
+          💡 Supabase 憑證在<a href="https://app.supabase.com" target="_blank" style="color:#6aa8ff;text-decoration:underline;">https://app.supabase.com</a> → Project Settings → API 可獲得。每次執行模擬時，決策參數與結果將自動保存到數據庫。
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div class="card__title">代工廠參數輸入（手動 key-in）</div>
+          <div class="pill">相對指標 / 模擬值</div>
+        </div>
+
+        <p class="hint" style="margin-top:0;">
+          成本與交期風險越低越好；碳排強度改為區間滑桿（min ~ max）；cap 為可供應上限（%）。
+        </p>
+
+        <div class="divider"></div>
+
+        <!-- Foundry A -->
+        <div class="card subcard">
+          <div class="row">
+            <div class="card__title" style="margin:0;">代工廠 A</div>
+            <div class="pill">A</div>
+          </div>
+
+          <div class="grid2" style="margin-top:10px;">
+            <label class="field">
+              <span>成本（cost index）</span>
+              <input type="number" id="costA" value="1.0" step="0.01" min="0" />
+            </label>
+
+            <label class="field">
+              <span>交期風險（lead risk）</span>
+              <input type="number" id="leadA" value="0.6" step="0.01" min="0" />
+            </label>
+
+            <label class="field">
+              <span>產能上限（cap %）</span>
+              <input type="number" id="capA" value="60" step="1" min="0" max="100" />
+            </label>
+
+            <div class="field">
+              <span>碳排強度平均值</span>
+              <div class="range-value" id="co2A_avg">0.90</div>
+            </div>
+          </div>
+
+          <div class="slider-group">
+            <label class="field">
+              <span>碳排強度 min：<strong id="co2A_min_val">0.80</strong></span>
+              <input type="range" id="co2A_min" min="0.2" max="1.5" step="0.01" value="0.80" />
+            </label>
+
+            <label class="field">
+              <span>碳排強度 max：<strong id="co2A_max_val">1.00</strong></span>
+              <input type="range" id="co2A_max" min="0.2" max="1.5" step="0.01" value="1.00" />
+            </label>
+          </div>
+        </div>
+
+        <!-- Foundry B -->
+        <div class="card subcard">
+          <div class="row">
+            <div class="card__title" style="margin:0;">代工廠 B</div>
+            <div class="pill">B</div>
+          </div>
+
+          <div class="grid2" style="margin-top:10px;">
+            <label class="field">
+              <span>成本（cost index）</span>
+              <input type="number" id="costB" value="1.4" step="0.01" min="0" />
+            </label>
+
+            <label class="field">
+              <span>交期風險（lead risk）</span>
+              <input type="number" id="leadB" value="1.0" step="0.01" min="0" />
+            </label>
+
+            <label class="field">
+              <span>產能上限（cap %）</span>
+              <input type="number" id="capB" value="60" step="1" min="0" max="100" />
+            </label>
+
+            <div class="field">
+              <span>碳排強度平均值</span>
+              <div class="range-value" id="co2B_avg">0.70</div>
+            </div>
+          </div>
+
+          <div class="slider-group">
+            <label class="field">
+              <span>碳排強度 min：<strong id="co2B_min_val">0.60</strong></span>
+              <input type="range" id="co2B_min" min="0.2" max="1.5" step="0.01" value="0.60" />
+            </label>
+
+            <label class="field">
+              <span>碳排強度 max：<strong id="co2B_max_val">0.80</strong></span>
+              <input type="range" id="co2B_max" min="0.2" max="1.5" step="0.01" value="0.80" />
+            </label>
+          </div>
+        </div>
+
+        <!-- Foundry C -->
+        <div class="card subcard">
+          <div class="row">
+            <div class="card__title" style="margin:0;">代工廠 C</div>
+            <div class="pill">C</div>
+          </div>
+
+          <div class="grid2" style="margin-top:10px;">
+            <label class="field">
+              <span>成本（cost index）</span>
+              <input type="number" id="costC" value="2.0" step="0.01" min="0" />
+            </label>
+
+            <label class="field">
+              <span>交期風險（lead risk）</span>
+              <input type="number" id="leadC" value="1.2" step="0.01" min="0" />
+            </label>
+
+            <label class="field">
+              <span>產能上限（cap %）</span>
+              <input type="number" id="capC" value="60" step="1" min="0" max="100" />
+            </label>
+
+            <div class="field">
+              <span>碳排強度平均值</span>
+              <div class="range-value" id="co2C_avg">0.50</div>
+            </div>
+          </div>
+
+          <div class="slider-group">
+            <label class="field">
+              <span>碳排強度 min：<strong id="co2C_min_val">0.40</strong></span>
+              <input type="range" id="co2C_min" min="0.2" max="1.5" step="0.01" value="0.40" />
+            </label>
+
+            <label class="field">
+              <span>碳排強度 max：<strong id="co2C_max_val">0.60</strong></span>
+              <input type="range" id="co2C_max" min="0.2" max="1.5" step="0.01" value="0.60" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__title">決策偏好（多目標權衡）</div>
+        <div class="grid3">
+          <label class="field">
+            <span>成本重要性</span>
+            <select id="w_cost">
+              <option value="1">低</option>
+              <option value="2" selected>中</option>
+              <option value="3">高</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>交期重要性</span>
+            <select id="w_lead">
+              <option value="1">低</option>
+              <option value="2" selected>中</option>
+              <option value="3">高</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>碳排重要性</span>
+            <select id="w_co2">
+              <option value="1">低</option>
+              <option value="2" selected>中</option>
+              <option value="3">高</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="card__title">供應衝擊情境（Stage 2）</div>
+        <div class="checks">
+          <label class="check"><input type="checkbox" class="scenario" value="demand_up" /> 需求突然上升（拉貨/急單增加）</label>
+          <label class="check"><input type="checkbox" class="scenario" value="region_limit" /> 單一地區產能受限（天災/政策/停電）</label>
+          <label class="check"><input type="checkbox" class="scenario" value="material_short" /> 關鍵材料供應吃緊（封裝材料/化學品）</label>
+          <label class="check"><input type="checkbox" class="scenario" value="low_carbon_strict" /> 低碳要求加嚴（碳成本/碳上限）</label>
+        </div>
+
+        <div class="actions">
+          <button id="runBtn" class="btn primary">執行模擬（產生 Pareto）</button>
+          <button id="resetBtn" class="btn">重設</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: Outputs -->
+    <section class="panel">
+      <h2>輸出（結果展示）</h2>
+
+      <div class="card">
+        <div class="row">
+          <div class="card__title">Stage 1：Pareto 方案列表</div>
+          <div class="pill">共 <span id="paretoCount">—</span></div>
+        </div>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>方案</th>
+              <th>A</th>
+              <th>B</th>
+              <th>C</th>
+              <th>成本</th>
+              <th>交期風險</th>
+              <th>碳排</th>
+              <th>加權分數</th>
+            </tr>
+          </thead>
+          <tbody id="paretoTableBody">
+            <tr><td colspan="8" class="muted">請先執行模擬</td></tr>
+          </tbody>
+        </table>
+
+        <p class="hint">點選任一方案列，可更新下方圖表與風險分析。</p>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="card__title">Stage 1：採購配置結果（選定方案）</div>
+            <p class="hint">展示被點選的 Pareto 方案之採購比例與三目標表現（相對指標）。</p>
+          </div>
+          <div class="pill" id="solutionLabel">折衷方案（推薦）</div>
+        </div>
+
+        <div class="split">
+          <div class="chartBox">
+            <canvas id="allocChart" width="420" height="260"></canvas>
+            <div class="legend" id="allocLegend"></div>
+          </div>
+
+          <div class="kpis">
+            <div class="kpi">
+              <div class="kpi__label">💰 成本指標（相對）</div>
+              <div class="kpi__value" id="kpiCost">—</div>
+              <div class="kpi__sub" id="kpiCostSub">—</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi__label">⏱ 交期風險</div>
+              <div class="kpi__value" id="kpiLead">—</div>
+              <div class="kpi__sub" id="kpiLeadSub">—</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi__label">🌱 碳排強度（相對）</div>
+              <div class="kpi__value" id="kpiCO2">—</div>
+              <div class="kpi__sub" id="kpiCO2Sub">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__title">Stage 2：缺料風險熱點（辨識）</div>
+        <p class="hint">
+          風險為「位置辨識」：指出在不同衝擊情境下，哪些供應環節較可能成為瓶頸（非庫存精準預測）。
+        </p>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>供應環節</th>
+              <th>風險等級</th>
+              <th>主要原因（示意）</th>
+            </tr>
+          </thead>
+          <tbody id="riskTable">
+            <tr><td colspan="3" class="muted">請先執行模擬</td></tr>
+          </tbody>
+        </table>
+
+        <div class="insight" id="insightBox">
+          <div class="insight__title">AI採購策略建議</div>
+          <div class="insight__text" id="insightText">—</div>
+        </div>
+      </div>
+
+      <div class="footnote">
+        <strong>研究展示說明：</strong>本介面用於視覺化論文模型輸出，資料可手動輸入以模擬不同採購情境；不代表真實企業內部數據。
+      </div>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

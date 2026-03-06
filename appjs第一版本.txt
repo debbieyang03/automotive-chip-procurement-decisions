@@ -1,0 +1,393 @@
+/**
+ * 研究展示用（簡化版）：
+ * - Stage 1：根據偏好(成本/交期/碳排)與代工廠特性，計算一個「合理」的採購比例（示意）
+ * - Stage 2：根據採購集中度 + 情境衝擊，產生「風險熱點辨識」（示意）
+ *
+ * 注意：這不是企業真實系統，也不是庫存精準預測；目的是展示論文方法與輸出型態
+ */
+
+const $ = (id) => document.getElementById(id);
+
+const canvas = $("allocChart");
+const ctx = canvas.getContext("2d");
+
+const COLORS = {
+  A: "#6aa8ff",
+  B: "#46e6a6",
+  C: "#ffcc66",
+};
+
+const FOUNDRY_BASE = {
+  // 分數越高代表：成本較高 / 交期較好(風險較低) / 碳排較低(更綠)
+  A: { cost: 1.0, lead: 0.6, co2: 0.4, label: "代工廠 A" },
+  B: { cost: 1.4, lead: 1.0, co2: 0.7, label: "代工廠 B" },
+  C: { cost: 2.0, lead: 1.2, co2: 1.1, label: "代工廠 C" },
+};
+
+function getSelectedFoundries(){
+  const checks = Array.from(document.querySelectorAll(".fab:checked")).map(x => x.value);
+  // 至少選 1 家
+  if (checks.length === 0) return ["A"];
+  return checks;
+}
+
+function getScenarioFlags(){
+  return Array.from(document.querySelectorAll(".scenario:checked")).map(x => x.value);
+}
+
+function normalizeWeights(wCost, wLead, wCO2){
+  const sum = wCost + wLead + wCO2;
+  return {
+    cost: wCost / sum,
+    lead: wLead / sum,
+    co2:  wCO2 / sum,
+  };
+}
+
+function computeAllocation(foundries, weights, expediteAllowed){
+  /**
+   * 非正式最佳化求解器：用「打分→softmax→比例」產生一組合理解（示意）
+   * 真正論文可替換成 NSGA-II / weighted sum / MILP
+   */
+  const scores = {};
+  for (const f of foundries){
+    const b = FOUNDRY_BASE[f];
+    // 成本越低越好，所以用 -cost；交期與低碳越高越好，用 +lead/+co2
+    let score =
+      weights.lead * b.lead +
+      weights.co2  * b.co2  -
+      weights.cost * b.cost;
+
+    // 若不允許急單，偏好交期時就會更難，用一點懲罰（示意）
+    if (expediteAllowed === "no"){
+      score -= (weights.lead * 0.15);
+    }
+
+    scores[f] = score;
+  }
+
+  // Softmax
+  const maxScore = Math.max(...Object.values(scores));
+  const exps = {};
+  let denom = 0;
+  for (const f of foundries){
+    const e = Math.exp(scores[f] - maxScore);
+    exps[f] = e;
+    denom += e;
+  }
+
+  // 轉比例
+  const alloc = {};
+  for (const f of foundries){
+    alloc[f] = exps[f] / denom;
+  }
+
+  // 最低分散度約束（示意）：避免全部壓單一廠（更像車用）
+  // 若集中度太高，做一點平滑
+  const maxShare = Math.max(...Object.values(alloc));
+  if (foundries.length >= 2 && maxShare > 0.78){
+    const alpha = 0.15; // 平滑係數
+    const uniform = 1 / foundries.length;
+    for (const f of foundries){
+      alloc[f] = (1 - alpha) * alloc[f] + alpha * uniform;
+    }
+    // 再正規化
+    const s = Object.values(alloc).reduce((a,b)=>a+b,0);
+    for (const f of foundries) alloc[f] /= s;
+  }
+
+  return alloc;
+}
+
+function computeKPIs(alloc){
+  // 用加權平均做相對指標
+  // cost 越低越好，但為了視覺直觀，這裡顯示「成本指標」(越小越好)
+  let cost = 0, lead = 0, co2 = 0;
+  for (const [f, share] of Object.entries(alloc)){
+    const b = FOUNDRY_BASE[f];
+    cost += share * b.cost;
+    lead += share * b.lead;
+    co2  += share * b.co2;
+  }
+
+  // 把 lead 轉成風險等級（示意）：lead 越高代表越穩→風險越低
+  const leadRisk = lead >= 1.05 ? "低" : (lead >= 0.85 ? "中" : "高");
+
+  // KPI 顯示格式
+  return {
+    costIndex: cost, // 越小越好
+    leadScore: lead, // 越大越好
+    leadRisk,
+    co2Index: co2,   // 越小越好（若你要越大越綠也行，這裡用「強度」概念）
+  };
+}
+
+function pickSolutionLabel(weights){
+  // 用偏好判斷方案標籤（給展示用）
+  const {cost, lead, co2} = weights;
+  const top = Math.max(cost, lead, co2);
+  if (top === cost && cost > 0.45) return "偏低成本方案";
+  if (top === lead && lead > 0.45) return "偏交期穩健方案";
+  if (top === co2  && co2  > 0.45) return "偏低碳方案";
+  return "折衷方案（推薦）";
+}
+
+function drawAllocationChart(alloc){
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 背景網格
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  for (let y=20; y<canvas.height; y+=24){
+    ctx.beginPath();
+    ctx.moveTo(10, y);
+    ctx.lineTo(canvas.width-10, y);
+    ctx.strokeStyle = "#ffffff";
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 圓餅圖（簡單版）
+  const cx = 140, cy = 120, r = 78;
+  let start = -Math.PI/2;
+  for (const [f, share] of Object.entries(alloc)){
+    const end = start + share * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, start, end);
+    ctx.closePath();
+    ctx.fillStyle = COLORS[f] || "#999";
+    ctx.fill();
+    start = end;
+  }
+
+  // 外圈
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // 標題
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.font = "bold 14px system-ui, -apple-system, Segoe UI, Roboto, Noto Sans TC";
+  ctx.fillText("採購比例", 20, 28);
+
+  // 右側小條（條形）
+  const bx = 260, by = 62, bw = 140, bh = 16, gap = 16;
+  let i = 0;
+  for (const [f, share] of Object.entries(alloc)){
+    const y = by + i * (bh + gap);
+    // 底條
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fillRect(bx, y, bw, bh);
+    // 值條
+    ctx.fillStyle = COLORS[f] || "#999";
+    ctx.fillRect(bx, y, Math.max(6, bw * share), bh);
+    // 文字
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto, Noto Sans TC";
+    ctx.fillText(`${f} ${Math.round(share*100)}%`, bx, y - 4);
+    i++;
+  }
+
+  // Legend
+  const legend = $("allocLegend");
+  legend.innerHTML = "";
+  for (const [f] of Object.entries(alloc)){
+    const item = document.createElement("div");
+    item.innerHTML = `<span class="dot" style="background:${COLORS[f]||"#999"}"></span>${FOUNDRY_BASE[f].label}`;
+    legend.appendChild(item);
+  }
+}
+
+function riskLevelTag(level){
+  if (level === "高") return `<span class="riskTag risk-high">高</span>`;
+  if (level === "中") return `<span class="riskTag risk-mid">中</span>`;
+  return `<span class="riskTag risk-low">低</span>`;
+}
+
+function computeRiskHotspots(alloc, scenarioFlags){
+  /**
+   * 以簡化規則做「風險熱點辨識」
+   * 1) 代工集中度高 → 晶圓代工風險上升
+   * 2) material_short 勾選 → 封裝材料風險上升
+   * 3) region_limit 勾選 + 某一廠佔比高 → 地理集中/單點故障風險上升
+   * 4) demand_up 勾選 → 產能緊度上升（晶圓代工/測試）
+   * 5) low_carbon_strict 勾選 → 低碳限制會壓縮選擇，可能提高交期/材料壓力（示意）
+   */
+
+  const shares = Object.values(alloc);
+  const maxShare = Math.max(...shares);
+  const herfindahl = shares.reduce((s,p)=> s + p*p, 0); // 0~1，越大越集中
+  const flags = new Set(scenarioFlags);
+
+  // 基礎分數（0~100）
+  let waferScore = 30 + herfindahl * 50;   // 集中度越高風險越高
+  let pkgScore   = 25;
+  let testScore  = 20;
+
+  let reasons = {
+    wafer: [],
+    pkg: [],
+    test: [],
+  };
+
+  if (maxShare > 0.65){
+    waferScore += 12;
+    reasons.wafer.push("採購過度集中於單一代工來源");
+  } else {
+    reasons.wafer.push("採購來源相對分散");
+  }
+
+  if (flags.has("demand_up")){
+    waferScore += 12;
+    testScore  += 10;
+    reasons.wafer.push("需求上升 → 產能緊度提高");
+    reasons.test.push("需求上升 → 測試/交付壓力上升");
+  }
+
+  if (flags.has("region_limit")){
+    waferScore += 14;
+    reasons.wafer.push("地區/單點受限情境 → 供應中斷風險上升");
+  }
+
+  if (flags.has("material_short")){
+    pkgScore += 28;
+    reasons.pkg.push("材料供應吃緊情境 → 封裝材料成瓶頸機率上升");
+  } else {
+    reasons.pkg.push("未啟用材料短缺情境");
+  }
+
+  if (flags.has("low_carbon_strict")){
+    waferScore += 6;
+    pkgScore += 6;
+    reasons.wafer.push("低碳限制加嚴 → 可選供應組合受限");
+    reasons.pkg.push("低碳限制加嚴 → 替代/轉換彈性降低");
+  }
+
+  // 封裝若代工比重大、且材料情境開，分數再上調（示意：上游拉動下游）
+  if (flags.has("material_short") && maxShare > 0.6){
+    pkgScore += 8;
+    reasons.pkg.push("上游集中 + 材料吃緊 → 下游更容易卡住");
+  }
+
+  // 夾在 0~100
+  waferScore = Math.max(0, Math.min(100, waferScore));
+  pkgScore = Math.max(0, Math.min(100, pkgScore));
+  testScore = Math.max(0, Math.min(100, testScore));
+
+  function toLevel(score){
+    if (score >= 65) return "高";
+    if (score >= 45) return "中";
+    return "低";
+  }
+
+  const rows = [
+    { name: "晶圓代工（28nm）", level: toLevel(waferScore), reason: reasons.wafer.join("；") },
+    { name: "封裝材料（示意：ABF/基板/樹脂）", level: toLevel(pkgScore), reason: reasons.pkg.join("；") },
+    { name: "測試 / 交付產能", level: toLevel(testScore), reason: reasons.test.length ? reasons.test.join("；") : "一般情境下風險較低" },
+  ];
+
+  // 依風險排序（高→低）
+  const order = { "高": 3, "中": 2, "低": 1 };
+  rows.sort((a,b) => order[b.level] - order[a.level]);
+
+  return { rows, meta: { maxShare, herfindahl } };
+}
+
+function updateRiskTable(riskRows){
+  const tbody = $("riskTable");
+  tbody.innerHTML = "";
+  for (const r of riskRows){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.name}</td>
+      <td>${riskLevelTag(r.level)}</td>
+      <td>${r.reason}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function formatIndex(x){
+  // 顯示 0.01 精度即可
+  return (Math.round(x * 100) / 100).toFixed(2);
+}
+
+function setKPI(kpis){
+  $("kpiCost").textContent = formatIndex(kpis.costIndex);
+  $("kpiCostSub").textContent = "越低代表相對成本越佳";
+
+  $("kpiLead").textContent = kpis.leadRisk;
+  $("kpiLeadSub").textContent = `交期穩定度分數：${formatIndex(kpis.leadScore)}（越高越穩）`;
+
+  $("kpiCO2").textContent = formatIndex(kpis.co2Index);
+  $("kpiCO2Sub").textContent = "越低代表相對碳排強度越佳";
+}
+
+function buildInsight(solutionLabel, alloc, riskTop){
+  const shares = Object.entries(alloc)
+    .sort((a,b)=> b[1]-a[1])
+    .map(([f,s])=> `${f} ${Math.round(s*100)}%`)
+    .join("、");
+
+  return `本次結果為「${solutionLabel}」。採購配置（${shares}）。在目前情境下，最主要的缺料風險熱點為「${riskTop.name}」（風險：${riskTop.level}），可作為後續採購策略調整與風險控管的重點。`;
+}
+
+function run(){
+  const foundries = getSelectedFoundries();
+  const wCost = Number($("w_cost").value);
+  const wLead = Number($("w_lead").value);
+  const wCO2  = Number($("w_co2").value);
+  const weights = normalizeWeights(wCost, wLead, wCO2);
+
+  const expediteAllowed = $("expedite").value;
+  const alloc = computeAllocation(foundries, weights, expediteAllowed);
+
+  const label = pickSolutionLabel(weights);
+  $("solutionLabel").textContent = label;
+
+  drawAllocationChart(alloc);
+
+  const kpis = computeKPIs(alloc);
+  setKPI(kpis);
+
+  const flags = getScenarioFlags();
+  const risk = computeRiskHotspots(alloc, flags);
+  updateRiskTable(risk.rows);
+
+  const insight = buildInsight(label, alloc, risk.rows[0]);
+  $("insightText").textContent = insight;
+}
+
+function resetAll(){
+  $("industry").value = "車用電子（Tier-1 / 系統廠）";
+  $("node").value = "28nm";
+  $("demand").value = 1000000;
+  $("expedite").value = "yes";
+
+  document.querySelectorAll(".fab").forEach(ch => ch.checked = true);
+  $("w_cost").value = "2";
+  $("w_lead").value = "2";
+  $("w_co2").value = "2";
+  document.querySelectorAll(".scenario").forEach(ch => ch.checked = false);
+
+  $("solutionLabel").textContent = "折衷方案（推薦）";
+  $("kpiCost").textContent = "—";
+  $("kpiLead").textContent = "—";
+  $("kpiCO2").textContent = "—";
+  $("kpiCostSub").textContent = "—";
+  $("kpiLeadSub").textContent = "—";
+  $("kpiCO2Sub").textContent = "—";
+  $("riskTable").innerHTML = `<tr><td colspan="3" class="muted">請先執行模擬</td></tr>`;
+  $("insightText").textContent = "—";
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+$("runBtn").addEventListener("click", run);
+$("resetBtn").addEventListener("click", resetAll);
+
+// 初次載入先畫個空圖框
+resetAll();
