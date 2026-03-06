@@ -179,7 +179,7 @@ A：查看 **USAGE_GUIDE.md** 的故障排除部分，或 F12 看日誌
 - **數據庫**：使用 [Supabase](https://supabase.com) 作為 PostgreSQL 後端，自動記錄所有決策輸入與輸出。
 - **前端託管**：透過 [Vercel](https://vercel.com) 部署靜態頁面，支援自動分支部署和全球 CDN。
 - **CI 工作流程**：已建立 GitHub Actions，存放於 `.github/workflows/vercel-deploy.yml`。
-  - 每次推送 `master` 分支時執行：檢出代碼、安裝依賴、建構專案，然後呼叫 Vercel Action 部署。
+  - 每次推送 `master` 分支時執行：檢出代碼，然後呼叫 Vercel Action 部署（無需安裝依賴或建構）。
   - 需要在倉庫設定中加入 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID` 作為 Secrets。
 
 這樣，你的應用一旦推送更新會自動建構並上線，而資料則持續寫入 Supabase。請參閱專案首頁以獲得部署狀態。
