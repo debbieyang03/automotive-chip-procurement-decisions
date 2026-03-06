@@ -10,8 +10,9 @@ const COLORS = {
 };
 
 // Supabase 配置
-const SUPABASE_URL = 'https://ittjbzdhhmhpdfzzhezp.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_sfnqHutjYQ4Rb2zeHj_HEw_KAuexw0v';
+// 將金鑰放在 localStorage 或使用環境變數注入，請勿硬編碼
+const SUPABASE_URL = '';
+const SUPABASE_ANON_KEY = '';
 
 // 簡單的 Supabase 客戶端實現
 class SimpleSupabaseClient {
