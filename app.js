@@ -10,7 +10,7 @@ const COLORS = {
 };
 
 // Supabase 配置
-// 將金鑰放在 localStorage 或使用環境變數注入，請勿硬編碼
+// 將在 build 時由環境變數自動注入，或由使用者在 UI 中配置
 const SUPABASE_URL = '';
 const SUPABASE_ANON_KEY = '';
 

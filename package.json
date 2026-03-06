@@ -1,0 +1,10 @@
+{
+  "name": "automotive-chip-procurement-decisions",
+  "version": "1.0.0",
+  "description": "Automotive chip procurement decision-making application",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js && npx http-server"
+  },
+  "dependencies": {}
+}
