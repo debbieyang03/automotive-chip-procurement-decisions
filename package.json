@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Automotive chip procurement decision-making application",
   "scripts": {
-    "build": "bash build-deploy.sh",
+    "build": "node build.js",
     "dev": "node build.js && npx http-server"
   },
   "dependencies": {}
